@@ -11,7 +11,7 @@ import { median, midiToHz, noteName } from '../engine/util';
 import { makeVariations } from '../engine/variations';
 import { encodeWav } from '../engine/wav';
 import { makeZip } from '../engine/zip';
-import { currentPlaybackId, decodeFile, play, stopPlayback } from './audio';
+import { currentPlaybackId, decodeFile, getAudioContext, play, stopPlayback } from './audio';
 import { h, icon, ICONS } from './dom';
 import { LaneEditor } from './lanes';
 import { LANE_SPECS } from './laneSpecs';
@@ -605,6 +605,18 @@ export class App {
   // ----------------------------------------------------------------- events
 
   private bindGlobalEvents(): void {
+    // iOS Safari only lets audio start inside a user gesture. Create/resume the
+    // AudioContext on the first touch or click so later playback (e.g. the
+    // auto-play after analysis, which runs after async work) is audible.
+    const unlock = () => {
+      const ac = getAudioContext();
+      if (ac.state === 'running') {
+        window.removeEventListener('pointerdown', unlock, true);
+        window.removeEventListener('keydown', unlock, true);
+      }
+    };
+    window.addEventListener('pointerdown', unlock, true);
+    window.addEventListener('keydown', unlock, true);
     window.addEventListener('keydown', (e) => this.onKeyDown(e));
     window.addEventListener('keyup', (e) => this.onKeyUp(e));
     window.addEventListener('hashchange', () => void this.loadFromHash());
