@@ -98,3 +98,7 @@ If Playwright can't find a browser on your machine, run `npx playwright install 
 - Pitch tracking covers about 55 Hz to 2.5 kHz, which spans voices and whistles. Very breathy or very quiet performances read as noise, which is usually what you want.
 - Recording uses `ScriptProcessorNode`. It's deprecated but supported by every current browser, and it's the most dependable way to get raw, unprocessed microphone audio.
 - The library uses `localStorage`, so it is per browser. Use WAV export or share links to move sounds between devices.
+
+## Hosted copy
+
+`docs/index.html` is the single-file build (`npm run build:single`), committed so GitHub Pages can serve it from the `/docs` folder. Rebuild and recommit it after changing the app.
