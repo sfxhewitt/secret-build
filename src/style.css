@@ -554,9 +554,8 @@ h3 {
 }
 
 .wave-label {
-  position: absolute;
-  top: 2px;
-  left: 8px;
+  display: block;
+  margin: 0 0 3px 2px;
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.06em;
@@ -1328,13 +1327,28 @@ kbd {
     text-align: center;
   }
 
-  .mic-wrap {
-    width: 100%;
-    order: 2;
+  .capture-copy {
+    display: contents;
   }
 
-  .capture-copy {
+  .capture-copy h1 {
     order: 1;
+    margin-bottom: 0;
+  }
+
+  .lede {
+    order: 2;
+    margin-bottom: 0;
+  }
+
+  .mic-wrap {
+    width: 100%;
+    order: 3;
+  }
+
+  .chip-row {
+    order: 4;
+    margin-top: 0;
   }
 
   .lede {
@@ -1359,8 +1373,29 @@ kbd {
     width: 100%;
   }
 
+  .transport {
+    padding-inline: 10px;
+  }
+
   .transport-inner {
-    gap: 4px;
+    gap: 2px;
+    padding: 6px;
+  }
+
+  .transport .icon-btn {
+    width: 34px;
+    height: 34px;
+    border-color: transparent;
+    background: transparent;
+  }
+
+  .transport .btn {
+    padding: 8px 10px;
+  }
+
+  .play-big {
+    width: 44px;
+    height: 44px;
   }
 
   .toggle.small {
@@ -1379,4 +1414,14 @@ kbd {
 
 .takes-grid > .empty {
   grid-column: 1 / -1;
+}
+
+@media (max-width: 380px) {
+  .transport [aria-label='Redo'] {
+    display: none;
+  }
+
+  .transport .toggle.small {
+    margin: 0;
+  }
 }

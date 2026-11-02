@@ -18,10 +18,9 @@ export const LANE_SPECS: Record<LaneId, LaneSpec> = {
     format: (v) => `${noteName(v)} · ${hz(midiToHz(v))}`,
     grid: (lo, hi) => {
       const out: { v: number; label?: string; strong?: boolean }[] = [];
-      const fine = hi - lo <= 26;
       for (let m = Math.ceil(lo); m <= Math.floor(hi); m++) {
         if (m % 12 === 0) out.push({ v: m, label: noteName(m), strong: true });
-        else if (fine) out.push({ v: m });
+        else if (m % 12 === 7 && hi - lo <= 40) out.push({ v: m, label: noteName(m) });
       }
       return out;
     },
@@ -43,7 +42,7 @@ export const LANE_SPECS: Record<LaneId, LaneSpec> = {
     hint: 'tone ↔ hiss',
     colorVar: '--lane-noise',
     domain: [0, 1],
-    height: 80,
+    height: 88,
     fill: true,
     format: (v) => (v < 0.05 ? 'pure tone' : v > 0.95 ? 'pure noise' : `${pct(v)} noise`),
     grid: () => [{ v: 0.5, label: 'mix' }],
@@ -54,7 +53,7 @@ export const LANE_SPECS: Record<LaneId, LaneSpec> = {
     hint: 'dark ↔ bright',
     colorVar: '--lane-bright',
     domain: [0, 1],
-    height: 80,
+    height: 88,
     fill: true,
     format: (v) => hz(brightToHz(v)),
     grid: () => [

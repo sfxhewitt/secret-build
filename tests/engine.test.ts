@@ -43,7 +43,10 @@ function tone(freq: number, seconds: number, sr = SR, amp = 0.5): Float32Array {
 function meanFinite(a: ArrayLike<number>, from = 0, to = a.length): number {
   let s = 0;
   let c = 0;
-  for (let i = from; i < to; i++) if (Number.isFinite(a[i])) (s += a[i]), c++;
+  for (let i = from; i < to; i++) if (Number.isFinite(a[i])) {
+    s += a[i];
+    c++;
+  }
   return s / c;
 }
 

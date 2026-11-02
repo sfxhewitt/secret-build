@@ -87,6 +87,8 @@ const GROUPS: { title: string; sliders: SliderDef[]; toggles?: ('quantize' | 're
   },
 ];
 
+const IDLE_HINT = window.matchMedia?.('(pointer: coarse)').matches ? 'Tap to record' : 'Click, or hold Space';
+
 const TOGGLE_LABELS = { quantize: 'Snap pitch to notes', reverse: 'Reverse' } as const;
 const WAVE_LABELS: Record<Waveform, string> = { sine: 'Sine', triangle: 'Tri', square: 'Square', saw: 'Saw', pulse: 'Pulse' };
 const WAVE_PATHS: Record<Waveform, string> = {
@@ -245,7 +247,7 @@ export class App {
       this.micLevel,
       h('span', { class: 'mic-core' }, icon(ICONS.mic, { size: 34 })),
     );
-    this.captureStatus = h('p', { class: 'capture-status', 'aria-live': 'polite' }, 'Tap, or hold Space');
+    this.captureStatus = h('p', { class: 'capture-status', 'aria-live': 'polite' }, IDLE_HINT);
     this.fileInput = h('input', {
       type: 'file',
       accept: 'audio/*,.wav,.mp3,.ogg,.m4a,.webm,.flac,.json,application/json',
@@ -698,7 +700,11 @@ export class App {
         break;
       case 'Escape':
         stopPlayback();
-        if (this.recorder?.active) this.recorder.stop(true);
+        if (this.recorder?.active) {
+          this.recorder.stop(true);
+          this.recorder = null;
+          this.setCaptureState('idle', 'Recording cancelled.');
+        }
         this.toggleLibrary(false);
         break;
     }
@@ -706,6 +712,7 @@ export class App {
 
   private onKeyUp(e: KeyboardEvent): void {
     if (e.key !== ' ' || this.isTyping(e)) return;
+    e.preventDefault(); // stop a focused button from also being "clicked" by Space
     // Hold-to-record: releasing a long press stops; a quick tap leaves it running.
     if (this.recorder?.active && performance.now() - this.spaceDownAt > 450) this.recorder.stop();
   }
@@ -718,7 +725,7 @@ export class App {
     this.captureStatus.textContent =
       message ??
       {
-        idle: 'Tap, or hold Space',
+        idle: IDLE_HINT,
         starting: 'Opening the mic…',
         recording: `Listening… make the sound (stops when you go quiet, max ${MAX_RECORD_SECONDS} s)`,
         analysing: 'Listening back…',
