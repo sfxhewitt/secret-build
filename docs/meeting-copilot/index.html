@@ -6,6 +6,7 @@
 <title>Meeting Copilot</title>
 <style>
   :root{
+    color-scheme:dark;
     --bg:#0e1116; --panel:#161b23; --panel2:#1d2430; --line:#2a3342;
     --text:#e8edf4; --dim:#8b97a8; --accent:#4cc38a; --ask:#6cb2ff; --note:#f2b84b; --bad:#ff6b6b;
   }
@@ -143,7 +144,8 @@
 <script>
 (() => {
 'use strict';
-const $ = id => document.getElementById(id);
+const pipDoc = () => { try { const w = window.documentPictureInPicture && window.documentPictureInPicture.window; return w ? w.document : null; } catch (e) { return null; } };
+const $ = id => document.getElementById(id) || (pipDoc() && pipDoc().getElementById(id));
 const FIELDS = ['elKey','anKey','me','them','context','points','sttModel','llmModel','themSource','lang'];
 const DEFAULT_CONTEXT = '';
 const DEFAULT_POINTS = '';
@@ -207,7 +209,7 @@ const diar = { active: false, segs: new Map(), order: [], merges: {}, me: null, 
 const norm = t => (t || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 function diarResolve(id){ let n = 0; while (id != null && diar.merges[id] != null && n++ < 20) id = diar.merges[id]; return id; }
 function diarRuns(m){
-  if (!Array.isArray(m.words) || !m.words.length) return [{ spk: null, text: (m.text || '').trim() }];
+  if (!Array.isArray(m.words) || !m.words.length) return (m.text || '').trim() ? [{ spk: null, text: m.text.trim() }] : [];
   const runs = []; let cur = null;
   m.words.forEach(w => {
     if (w.type === 'audio_event') return;
@@ -479,7 +481,7 @@ function parseSuggestions(text){
   const out = [];
   text.split('\n').forEach(l => {
     const m = l.trim().match(/^(SAY|ASK|NOTE)\s*:\s*(.+)$/i);
-    if (m) out.push({ kind: m[1].toUpperCase(), text: m[2].trim() });
+    if (m) out.push({ kind: m[1].toUpperCase(), text: m[2].trim().replace(/^["\u201c]+|["\u201d]+$/g, '') });
   });
   return out;
 }
