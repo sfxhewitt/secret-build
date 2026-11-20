@@ -26,7 +26,7 @@
   @media (max-width:800px){main{grid-template-columns:1fr;grid-template-rows:1.3fr 1fr}}
   section{min-height:0;display:flex;flex-direction:column}
   .cap{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);padding:10px 14px 4px;display:flex;align-items:center;gap:8px}
-  .cap button{padding:3px 8px;font-size:12px;margin-left:auto}
+  .cap button{padding:3px 8px;font-size:12px}
   #stage{background:var(--bg);color:var(--text);font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;flex:1;min-height:0;display:flex;flex-direction:column}
   #cards{flex:1;overflow:auto;padding:6px 14px 14px;display:flex;flex-direction:column;gap:10px}
   .set{display:flex;flex-direction:column;gap:8px}
@@ -48,7 +48,7 @@
   #transcript{flex:1;overflow:auto;padding:4px 14px 10px;font-size:14px}
   .ln{margin:6px 0}
   .ln b{font-size:11px;letter-spacing:.06em;text-transform:uppercase;margin-right:6px}
-  .ln.them b{color:var(--ask)} .ln.you b{color:var(--accent)} .ln.partial{opacity:.55;font-style:italic}
+  .ln.them b{color:var(--ask)} .ln.you b{color:var(--accent)} .ln.call b{color:var(--dim)} .ln.partial{opacity:.55;font-style:italic}
   #inject{display:flex;gap:6px;padding:8px 12px;border-top:1px solid var(--line)}
   input,textarea,select{font:inherit;color:var(--text);background:#0b0e13;border:1px solid var(--line);border-radius:8px;padding:8px 10px;width:100%}
   textarea{min-height:120px;resize:vertical}
@@ -86,7 +86,7 @@
     <div id="pipHolder">Suggestions are showing in the floating window.<br>Close it to bring them back here.</div>
   </section>
   <section id="transcriptWrap">
-    <div class="cap">Live transcript <button id="copyBtn">Copy</button></div>
+    <div class="cap">Live transcript <span style="flex:1"></span><button id="swapBtn" style="display:none" title="If your lines are showing under the other name">Swap speakers</button><button id="copyBtn">Copy</button></div>
     <div id="transcript"></div>
     <form id="inject">
       <input id="injectText" placeholder="Test: type something the other person might say, press Enter" autocomplete="off">
@@ -201,7 +201,61 @@ const lines = [];            // {who:'you'|'them', text}
 const segs = [];             // every committed segment, unmerged
 const partial = { you:'', them:'' };
 const oneMic = () => micOnly || cfg().themSource === 'none';
-function label(who){ const c = cfg(); if (who === 'you' && oneMic()) return 'Call'; return who === 'you' ? (c.me || 'You') : (c.them || 'Them'); }
+function label(who){ const c = cfg(); if (who === 'call') return 'Call'; return who === 'you' ? (c.me || 'You') : (c.them || 'Them'); }
+/* ---------- telling the two voices apart (single-microphone mode) ---------- */
+const diar = { active: false, segs: new Map(), order: [], merges: {}, me: null, prov: [], lastAt: 0, lastText: '', epoch: 0, lastTail: '' };
+const norm = t => (t || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+function diarResolve(id){ let n = 0; while (id != null && diar.merges[id] != null && n++ < 20) id = diar.merges[id]; return id; }
+function diarRuns(m){
+  if (!Array.isArray(m.words) || !m.words.length) return [{ spk: null, text: (m.text || '').trim() }];
+  const runs = []; let cur = null;
+  m.words.forEach(w => {
+    if (w.type === 'audio_event') return;
+    const spk = w.type === 'spacing' || w.speaker_id == null ? (cur ? cur.spk : null) : w.speaker_id;
+    if (!cur || cur.spk !== spk){ cur = { spk, text: '' }; runs.push(cur); }
+    cur.text += w.text;
+  });
+  return runs.map(r => ({ spk: r.spk, text: r.text.trim() })).filter(r => r.text);
+}
+function diarRebuild(){
+  const out = [];
+  const push = (who, text) => { const l = out[out.length - 1]; if (l && l.who === who && l.text.length < 400) l.text += ' ' + text; else out.push({ who, text }); };
+  diar.order.forEach(k => diar.segs.get(k).forEach(r => {
+    const id = diarResolve(r.spk);
+    if (id != null && diar.me == null) diar.me = id;          // first voice heard is taken to be yours
+    push(id == null ? 'call' : (id === diar.me ? 'you' : 'them'), r.text);
+  }));
+  diar.prov.forEach(p => push(p.who, p.text));
+  lines.length = 0; out.forEach(l => lines.push(l));
+  segs.length = 0; out.forEach(l => segs.push(l));
+  $('swapBtn').style.display = diar.me != null ? '' : 'none';
+  renderTranscript();
+  const last = out[out.length - 1];
+  if (last && last.who !== 'you'){
+    const tail = last.who + '|' + last.text;
+    if (tail !== diar.lastTail && last.text.split(/\s+/).length >= 3){ diar.lastTail = tail; scheduleSuggest(500); }
+  } else if (last) diar.lastTail = '';
+}
+function diarOnSegment(m){
+  diar.active = true; diar.lastAt = Date.now(); diar.lastText = norm(m.text);
+  const k = diar.epoch + ':' + (m.segment_index != null ? m.segment_index : diar.order.length);
+  if (!diar.segs.has(k)) diar.order.push(k);
+  diar.segs.set(k, diarRuns(m));
+  diar.prov = diar.prov.filter(p => p.who === 'them');       // plain commits are now covered by the voice-labelled text
+  diarRebuild();
+}
+function diarOnCommit(text){
+  const t = norm(text); if (!t) return;
+  // the same words may arrive both ways; skip the plain copy if the labelled one just landed
+  if (Date.now() - diar.lastAt < 2500 && (diar.lastText.endsWith(t) || diar.lastText.includes(t))) return;
+  diar.prov.push({ who: 'call', text: text.trim() }); diarRebuild();
+}
+function diarSwap(){
+  const ids = []; diar.order.forEach(k => diar.segs.get(k).forEach(r => { const id = diarResolve(r.spk); if (id != null) ids.push(id); }));
+  const other = ids.reverse().find(id => id !== diar.me); if (other == null) return;
+  diar.me = other; diarRebuild();
+}
+
 function renderTranscript(){
   const el = $('transcript');
   const stick = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
@@ -212,17 +266,19 @@ function renderTranscript(){
     d.append(b, document.createTextNode(text)); el.append(d);
   };
   lines.slice(-200).forEach(l => add(l.who, l.text, false));
-  ['them','you'].forEach(w => { if (partial[w]) add(w, partial[w], true); });
+  ['them','you'].forEach(w => { if (partial[w]) add(w === 'you' && oneMic() ? 'call' : w, partial[w], true); });
   if (stick) el.scrollTop = el.scrollHeight;
 }
 function addLine(who, text){
   text = (text || '').trim(); if (!text) return;
+  if (who === 'you' && oneMic()) who = 'call';
+  if (diar.active){ diar.prov.push({ who, text }); diarRebuild(); return; }
   segs.push({ who, text });
   const last = lines[lines.length - 1];
   if (last && last.who === who && last.text.length < 400) last.text += ' ' + text;
   else lines.push({ who, text });
   renderTranscript();
-  if ((who === 'them' || oneMic()) && text.split(/\s+/).length >= 3) scheduleSuggest(500);
+  if (who !== 'you' && text.split(/\s+/).length >= 3) scheduleSuggest(500);
 }
 
 /* ---------- audio capture -> 16 kHz PCM ---------- */
@@ -278,16 +334,19 @@ async function openSocket(who, model){
     vad_silence_threshold_secs: '0.7'
   });
   if (c.lang) q.set('language_code', c.lang);
+  if (ch.diar) q.set('diarize', 'true');
   const ws = new WebSocket('wss://api.elevenlabs.io/v1/speech-to-text/realtime?' + q);
   ch.ws = ws; let started = false;
   const dot = who === 'you' ? 'dotYou' : 'dotThem';
   ws.onmessage = ev => {
     let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
     const t = m.message_type;
-    if (t === 'session_started'){ started = true; ch.retry = 0; setDot(dot, 'on'); }
+    if (t === 'session_started'){ started = true; ch.retry = 0; setDot(dot, 'on'); if (ch.diar) diar.epoch++; }
+    else if (t === 'diarized_transcript'){ partial[who] = ''; diarOnSegment(m); }
+    else if (t === 'speakers_merged'){ diar.merges[m.from_speaker_id] = m.to_speaker_id; if (diar.me === m.from_speaker_id) diar.me = m.to_speaker_id; diarRebuild(); }
     else if (t === 'partial_transcript'){ partial[who] = m.text || ''; renderTranscript(); }
     else if (t === 'committed_transcript' || t === 'committed_transcript_with_timestamps'){
-      partial[who] = ''; addLine(who, m.text);
+      partial[who] = ''; if (diar.active) diarOnCommit(m.text); else addLine(who, m.text);
     }
     else if (t === 'warning'){ console.warn('ElevenLabs', m.warning); }
     else if (t === 'insufficient_audio_activity' || t === 'commit_throttled'){ /* harmless */ }
@@ -298,6 +357,8 @@ async function openSocket(who, model){
     ch.ws = null; partial[who] = ''; renderTranscript();
     if (!running) { setDot(dot, ''); return; }
     setDot(dot, 'err');
+    // voice separation refused -> carry on without it
+    if (!started && ch.diar){ ch.diar = false; openSocket(who, ch.model); return; }
     // newest model unavailable on this account -> fall back once
     if (!started && model === 'scribe_v3_live'){ ch.model = 'scribe_v2_realtime'; openSocket(who, ch.model); return; }
     ch.retry = (ch.retry || 0) + 1;
@@ -312,7 +373,7 @@ async function addChannel(who, stream){
   const node = new AudioWorkletNode(audioCtx, 'down16k');
   const mute = audioCtx.createGain(); mute.gain.value = 0;
   src.connect(node); node.connect(mute); mute.connect(audioCtx.destination);
-  const ch = channels[who] = { stream, node, src, ws: null, retry: 0, model: cfg().sttModel || 'scribe_v3_live' };
+  const ch = channels[who] = { stream, node, src, ws: null, retry: 0, model: cfg().sttModel || 'scribe_v3_live', diar: who === 'you' && cfg().themSource === 'none' };
   node.port.onmessage = ev => {
     const ws = ch.ws;
     if (ws && ws.readyState === 1 && ws.bufferedAmount < 400000){
@@ -397,7 +458,7 @@ function systemPrompt(c, withPoints = true){
 MEETING NOTES FROM ${(c.me || 'the user').toUpperCase()}:
 ${c.context || '(none given)'}
 
-You receive the running transcript. Lines are labelled with the speaker. ${oneMic() ? 'Only one microphone is being captured, so both people appear under the single label "Call". Work out who is speaking from the content: questions about the assessment or arrangements, and anything addressed to ' + (c.me || 'the user') + ' by name, come from ' + (c.them || 'the other person') + '. If the latest line was clearly spoken by ' + (c.me || 'the user') + ' and needs no follow-up, reply WAIT.' : ''} The transcript is machine-generated and may contain mishearings.
+You receive the running transcript. Lines are labelled with the speaker. ${oneMic() ? 'Only one microphone is being captured. Lines are labelled either with a name, assigned automatically from the sound of the voice (this can be wrong or swapped), or with "Call" (not assigned). Check the label against the content: questions about the assessment or arrangements, and anything addressed to ' + (c.me || 'the user') + ' by name, come from ' + (c.them || 'the other person') + '. If the latest line was clearly spoken by ' + (c.me || 'the user') + ' and needs no follow-up, reply WAIT.' : ''} The transcript is machine-generated and may contain mishearings.
 
 Reply with 1 to 3 lines, best first, and nothing else. Each line starts with one of:
 SAY: a sentence ${c.me || 'the user'} can say out loud as written. Natural spoken British English, 25 words at most.
@@ -469,7 +530,7 @@ async function suggestViaHelper(manual){
       body: JSON.stringify({
         system: systemPrompt(c, false), me: c.me, manual: !!manual,
         segs: segs.slice(-60).map(s => ({ who: label(s.who), text: s.text })), total: segs.length,
-        points: openPoints()
+        points: openPoints(), full: diar.active
       })
     });
     if (r.status === 409) return;
@@ -579,6 +640,7 @@ renderPoints();
 $('startBtn').onclick = async () => { saveCfg(); if (running) return stop(); await detectHelper(); start(); };
 $('suggestBtn').onclick = () => suggest(true);
 $('pipBtn').onclick = floatOnTop;
+$('swapBtn').onclick = diarSwap;
 $('copyBtn').onclick = async () => {
   const txt = lines.map(l => label(l.who) + ': ' + l.text).join('\n');
   try { await navigator.clipboard.writeText(txt); $('copyBtn').textContent = 'Copied'; setTimeout(() => $('copyBtn').textContent = 'Copy', 1500); }

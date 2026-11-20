@@ -155,6 +155,7 @@ async function ask(b, onDelta){
     const first = state.seen === 0;
     let msg;
     if (b.warm) msg = 'The call has not started yet. Reply with exactly: WAIT';
+    else if (b.full) msg = 'LATEST TRANSCRIPT (most recent lines; this replaces what you were sent before, as speaker labels may have been corrected):\n' + (fmt(segs.slice(-14)) || '(nothing said yet)') + tail(b);
     else if (first) msg = 'TRANSCRIPT SO FAR:\n' + (fmt(segs) || '(nothing said yet)') + tail(b);
     else msg = (fresh.length ? 'NEW TRANSCRIPT LINES:\n' + fmt(fresh) : 'No new lines since your last suggestion. Give your best suggestion for this moment.') + tail(b);
     try {
