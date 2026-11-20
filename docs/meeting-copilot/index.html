@@ -71,7 +71,7 @@
   <button id="settingsBtn">Setup</button>
   <div id="status">
     <span><span class="dot" id="dotYou"></span>You</span>
-    <span><span class="dot" id="dotThem"></span>Them</span>
+    <span id="themStat"><span class="dot" id="dotThem"></span>Them</span>
     <span><span class="dot" id="dotAI"></span>Coach</span>
   </div>
 </header>
@@ -127,7 +127,7 @@
     </div>
     <div class="row">
       <div><label>Capture the other person from</label>
-        <select id="themSource"><option value="display">Computer audio (share screen or tab with audio)</option><option value="none">Microphone only (call on speakers)</option></select></div>
+        <select id="themSource"><option value="display">Computer audio (share screen or tab with audio)</option><option value="none">Microphone only (call is on my phone or on speakers)</option></select></div>
       <div><label>Language</label><input id="lang" value="en"></div>
     </div>
 
@@ -179,7 +179,9 @@ async function detectHelper(){
   BASE = HELPER ? 'http://localhost:8765' : '';
   applyHelperUI(); return HELPER;
 }
+function applySourceUI(){ $('themStat').style.display = cfg().themSource === 'none' ? 'none' : ''; }
 function applyHelperUI(){
+  applySourceUI();
   $('anWrap').style.display = HELPER ? 'none' : ''; $('llmWrap').style.display = HELPER ? 'none' : '';
   $('subNote').style.display = HELPER ? '' : 'none';
 }
@@ -198,7 +200,8 @@ const setDot = (id, cls) => { $(id).className = 'dot' + (cls ? ' ' + cls : ''); 
 const lines = [];            // {who:'you'|'them', text}
 const segs = [];             // every committed segment, unmerged
 const partial = { you:'', them:'' };
-function label(who){ const c = cfg(); return who === 'you' ? (c.me || 'You') : (c.them || 'Them'); }
+const oneMic = () => micOnly || cfg().themSource === 'none';
+function label(who){ const c = cfg(); if (who === 'you' && oneMic()) return 'Call'; return who === 'you' ? (c.me || 'You') : (c.them || 'Them'); }
 function renderTranscript(){
   const el = $('transcript');
   const stick = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
@@ -219,7 +222,7 @@ function addLine(who, text){
   if (last && last.who === who && last.text.length < 400) last.text += ' ' + text;
   else lines.push({ who, text });
   renderTranscript();
-  if (who === 'them' && text.split(/\s+/).length >= 3) scheduleSuggest(500);
+  if ((who === 'them' || oneMic()) && text.split(/\s+/).length >= 3) scheduleSuggest(500);
 }
 
 /* ---------- audio capture -> 16 kHz PCM ---------- */
@@ -324,7 +327,8 @@ async function start(){
   if (!c.elKey || (!HELPER && !c.anKey)){ openSettings(); toast(HELPER ? 'Add your ElevenLabs API key first.' : 'Add both API keys first.'); return; }
   $('startBtn').disabled = true;
   try {
-    const mic = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+    const far = c.themSource === 'none';   // one mic has to pick up a phone on loudspeaker as well
+    const mic = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: !far, noiseSuppression: !far, autoGainControl: true } });
     let sys = null;
     if (c.themSource === 'display'){
       try {
@@ -393,7 +397,7 @@ function systemPrompt(c, withPoints = true){
 MEETING NOTES FROM ${(c.me || 'the user').toUpperCase()}:
 ${c.context || '(none given)'}
 
-You receive the running transcript. Lines are labelled with the speaker. ${micOnly ? 'Only one microphone is being captured, so both people may appear under the same label; work out who is speaking from the content.' : ''} The transcript is machine-generated and may contain mishearings.
+You receive the running transcript. Lines are labelled with the speaker. ${oneMic() ? 'Only one microphone is being captured, so both people appear under the single label "Call". Work out who is speaking from the content: questions about the assessment or arrangements, and anything addressed to ' + (c.me || 'the user') + ' by name, come from ' + (c.them || 'the other person') + '. If the latest line was clearly spoken by ' + (c.me || 'the user') + ' and needs no follow-up, reply WAIT.' : ''} The transcript is machine-generated and may contain mishearings.
 
 Reply with 1 to 3 lines, best first, and nothing else. Each line starts with one of:
 SAY: a sentence ${c.me || 'the user'} can say out loud as written. Natural spoken British English, 25 words at most.
@@ -563,13 +567,14 @@ $('notesFile').onchange = async e => {
   const f = e.target.files[0]; if (!f) return;
   let t = await f.text();
   t = t.replace(/^ME:[ \t]*(.+)\r?\n/m, (_, v) => { $('me').value = v.trim(); return ''; })
-       .replace(/^THEM:[ \t]*(.+)\r?\n/m, (_, v) => { $('them').value = v.trim(); return ''; });
+       .replace(/^THEM:[ \t]*(.+)\r?\n/m, (_, v) => { $('them').value = v.trim(); return ''; })
+       .replace(/^SOURCE:[ \t]*(.+)\r?\n/m, (_, v) => { $('themSource').value = /mic/i.test(v) ? 'none' : 'display'; return ''; });
   const i = t.indexOf('===POINTS===');
   $('context').value = (i >= 0 ? t.slice(0, i) : t).trim();
   if (i >= 0) $('points').value = t.slice(i + 12).trim();
   saveCfg(); renderPoints();
 };
-$('closeSettings').onclick = () => { saveCfg(); $('settings').classList.remove('open'); renderTranscript(); renderPoints(); };
+$('closeSettings').onclick = () => { saveCfg(); applySourceUI(); $('settings').classList.remove('open'); renderTranscript(); renderPoints(); };
 renderPoints();
 $('startBtn').onclick = async () => { saveCfg(); if (running) return stop(); await detectHelper(); start(); };
 $('suggestBtn').onclick = () => suggest(true);
