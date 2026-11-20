@@ -1,0 +1,697 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Meeting Copilot</title>
+<style>
+  :root{
+    color-scheme:dark;
+    --bg:#0e1116; --panel:#161b23; --panel2:#1d2430; --line:#2a3342;
+    --text:#e8edf4; --dim:#8b97a8; --accent:#4cc38a; --ask:#6cb2ff; --note:#f2b84b; --bad:#ff6b6b;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:var(--bg);color:var(--text);font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;display:flex;flex-direction:column}
+  button{font:inherit;color:var(--text);background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:8px 12px;cursor:pointer}
+  button:hover{border-color:#3d4a5f}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#06130c;font-weight:650}
+  button.stop{background:var(--bad);border-color:var(--bad);color:#1a0505;font-weight:650}
+  button:disabled{opacity:.5;cursor:default}
+  header{display:flex;gap:8px;align-items:center;padding:10px 12px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+  header h1{font-size:15px;margin:0 8px 0 0;font-weight:650}
+  #status{margin-left:auto;font-size:13px;color:var(--dim);display:flex;gap:10px;align-items:center}
+  .dot{width:9px;height:9px;border-radius:50%;background:#48515f;display:inline-block;margin-right:4px}
+  .dot.on{background:var(--accent)} .dot.err{background:var(--bad)} .dot.wait{background:var(--note)}
+  main{flex:1;display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);min-height:0}
+  @media (max-width:800px){main{grid-template-columns:1fr;grid-template-rows:1.3fr 1fr}}
+  section{min-height:0;display:flex;flex-direction:column}
+  .cap{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);padding:10px 14px 4px;display:flex;align-items:center;gap:8px}
+  .cap button{padding:3px 8px;font-size:12px}
+  #stage{background:var(--bg);color:var(--text);font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;flex:1;min-height:0;display:flex;flex-direction:column}
+  #cards{flex:1;overflow:auto;padding:6px 14px 14px;display:flex;flex-direction:column;gap:10px}
+  .set{display:flex;flex-direction:column;gap:8px}
+  .set.old{opacity:.4}
+  .card{background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:10px;padding:10px 12px}
+  .card .k{font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--accent);margin-bottom:2px}
+  .card .v{font-size:19px;line-height:1.35}
+  .set.old .card .v{font-size:15px}
+  .card.ask{border-left-color:var(--ask)} .card.ask .k{color:var(--ask)}
+  .card.note{border-left-color:var(--note)} .card.note .k{color:var(--note)}
+  .card.note .v{font-size:15px}
+  .empty{color:var(--dim);padding:20px 4px}
+  #pointsWrap{border-top:1px solid var(--line);max-height:38%;overflow:auto;flex:none}
+  #pointsList{padding:0 14px 10px}
+  .pt{display:flex;gap:8px;align-items:flex-start;padding:4px 0;font-size:14px;cursor:pointer}
+  .pt input{width:auto;margin-top:3px;flex:none}
+  .pt.done span{text-decoration:line-through;color:var(--dim)}
+  #transcriptWrap{border-left:1px solid var(--line)}
+  #transcript{flex:1;overflow:auto;padding:4px 14px 10px;font-size:14px}
+  .ln{margin:6px 0}
+  .ln b{font-size:11px;letter-spacing:.06em;text-transform:uppercase;margin-right:6px}
+  .ln.them b{color:var(--ask)} .ln.you b{color:var(--accent)} .ln.call b{color:var(--dim)} .ln.partial{opacity:.55;font-style:italic}
+  #inject{display:flex;gap:6px;padding:8px 12px;border-top:1px solid var(--line)}
+  input,textarea,select{font:inherit;color:var(--text);background:#0b0e13;border:1px solid var(--line);border-radius:8px;padding:8px 10px;width:100%}
+  textarea{min-height:120px;resize:vertical}
+  label{display:block;font-size:12px;color:var(--dim);margin:12px 0 4px}
+  #settings{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:flex-start;justify-content:center;padding:24px;overflow:auto;z-index:10}
+  #settings.open{display:flex}
+  #settings .box{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 20px;max-width:640px;width:100%}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .hint{font-size:12px;color:var(--dim);margin-top:4px}
+  #toast{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);background:#3a1414;border:1px solid var(--bad);color:#ffd9d9;padding:10px 14px;border-radius:10px;max-width:90%;display:none;z-index:20;font-size:14px}
+  #pipHolder{flex:1;display:none;align-items:center;justify-content:center;color:var(--dim);padding:20px;text-align:center}
+</style>
+</head>
+<body>
+<header>
+  <h1>Meeting Copilot</h1>
+  <button id="startBtn" class="primary">Start listening</button>
+  <button id="suggestBtn" title="Shortcut: Space">Suggest now</button>
+  <button id="pipBtn" title="Small window that stays on top of Teams">Float on top</button>
+  <button id="settingsBtn">Setup</button>
+  <div id="status">
+    <span><span class="dot" id="dotYou"></span>You</span>
+    <span id="themStat"><span class="dot" id="dotThem"></span>Them</span>
+    <span><span class="dot" id="dotAI"></span>Coach</span>
+  </div>
+</header>
+
+<main>
+  <section id="stageWrap">
+    <div id="stage">
+      <div class="cap">What to say</div>
+      <div id="cards"><div class="empty">Suggestions appear here as the other person speaks. Open <b>Setup</b> first to add your keys and meeting notes.</div></div>
+      <div id="pointsWrap"><div class="cap">Still to raise</div><div id="pointsList"></div></div>
+    </div>
+    <div id="pipHolder">Suggestions are showing in the floating window.<br>Close it to bring them back here.</div>
+  </section>
+  <section id="transcriptWrap">
+    <div class="cap">Live transcript <span style="flex:1"></span><button id="swapBtn" style="display:none" title="If your lines are showing under the other name">Swap speakers</button><button id="copyBtn">Copy</button></div>
+    <div id="transcript"></div>
+    <form id="inject">
+      <input id="injectText" placeholder="Test: type something the other person might say, press Enter" autocomplete="off">
+    </form>
+  </section>
+</main>
+
+<div id="settings">
+  <div class="box">
+    <h2 style="margin:0 0 4px;font-size:17px">Setup</h2>
+    <div class="hint">Saved in this browser only. Keys are only ever sent to ElevenLabs and Anthropic.</div>
+
+    <label>ElevenLabs API key (listens and transcribes)</label>
+    <input id="elKey" type="password" placeholder="sk_..." autocomplete="off">
+    <div id="anWrap"><label>Anthropic API key (writes the suggestions)</label>
+    <input id="anKey" type="password" placeholder="sk-ant-..." autocomplete="off"></div>
+    <div id="subNote" class="hint" style="display:none;margin-top:12px;color:var(--accent)">Suggestions run through Claude Code on this computer, on your Claude subscription. No Anthropic API key needed.</div>
+
+    <div class="row">
+      <div><label>Your name</label><input id="me" value="" placeholder="e.g. Sam"></div>
+      <div><label>Other person</label><input id="them" value="" placeholder="e.g. Alex"></div>
+    </div>
+
+    <label>Load a notes file (fills the two boxes below)</label>
+    <input id="notesFile" type="file" accept=".txt,text/plain">
+
+    <label>Meeting notes: who they are, what the call is for, what you want out of it, facts and points you must get right</label>
+    <textarea id="context" placeholder="e.g. They are ... The call is about ... I want to come away with ... Key facts: ... Things I must not commit to: ..."></textarea>
+    <div class="hint">The coach only uses what is written here plus what is said on the call. The more you put in, the better the suggestions.</div>
+
+    <label>Points I want to raise (one per line, shown as a tick-list during the call)</label>
+    <textarea id="points" style="min-height:110px"></textarea>
+
+    <div class="row">
+      <div><label>Transcription model</label>
+        <select id="sttModel"><option value="scribe_v3_live">Scribe v3 Live (newest)</option><option value="scribe_v2_realtime">Scribe v2 Realtime</option></select></div>
+      <div id="llmWrap"><label>Suggestion model</label><input id="llmModel" value="claude-haiku-5-5"></div>
+    </div>
+    <div class="row">
+      <div><label>Capture the other person from</label>
+        <select id="themSource"><option value="display">Computer audio (share screen or tab with audio)</option><option value="none">Microphone only (call is on my phone or on speakers)</option></select></div>
+      <div><label>Language</label><input id="lang" value="en"></div>
+    </div>
+
+    <div style="display:flex;gap:8px;margin-top:18px;justify-content:flex-end">
+      <button id="testBtn">Test keys</button>
+      <button id="closeSettings" class="primary">Save</button>
+    </div>
+    <div id="testOut" class="hint"></div>
+  </div>
+</div>
+<div id="toast"></div>
+
+<script>
+(() => {
+'use strict';
+const pipDoc = () => { try { const w = window.documentPictureInPicture && window.documentPictureInPicture.window; return w ? w.document : null; } catch (e) { return null; } };
+const $ = id => document.getElementById(id) || (pipDoc() && pipDoc().getElementById(id));
+const FIELDS = ['elKey','anKey','me','them','context','points','sttModel','llmModel','themSource','lang'];
+const DEFAULT_CONTEXT = '';
+const DEFAULT_POINTS = '';
+const store = {
+  get(k){ try { return localStorage.getItem('mc_'+k); } catch(e){ return null; } },
+  set(k,v){ try { localStorage.setItem('mc_'+k, v); } catch(e){} }
+};
+$('context').value = DEFAULT_CONTEXT; $('points').value = DEFAULT_POINTS;
+FIELDS.forEach(f => { const v = store.get(f); if (v !== null && v !== '') $(f).value = v; });
+const pointsDone = new Set();
+function renderPoints(){
+  const list = $('pointsList'); list.textContent = '';
+  const pts = $('points').value.split('\n').map(s => s.trim()).filter(Boolean);
+  $('pointsWrap').style.display = pts.length ? '' : 'none';
+  pts.forEach(p => {
+    const l = document.createElement('label'); l.className = 'pt' + (pointsDone.has(p) ? ' done' : '');
+    const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = pointsDone.has(p);
+    cb.onchange = () => { cb.checked ? pointsDone.add(p) : pointsDone.delete(p); l.classList.toggle('done', cb.checked); };
+    const s = document.createElement('span'); s.textContent = p;
+    l.append(cb, s); list.append(l);
+  });
+}
+const allPoints = () => $('points').value.split('\n').map(s => s.trim()).filter(Boolean);
+const openPoints = () => allPoints().map((p, i) => ({ p, n: i + 1 })).filter(x => !pointsDone.has(x.p)).map(x => '[' + x.n + '] ' + x.p);
+function autoTick(text){
+  try {
+    const all = allPoints(); let changed = false;
+    (text.match(/^\s*DONE\s*:\s*([\d,\s\[\]]+)$/gim) || []).forEach(l => (l.match(/\d+/g) || []).forEach(d => {
+      const p = all[+d - 1]; if (p && !pointsDone.has(p)){ pointsDone.add(p); changed = true; }
+    }));
+    if (changed) renderPoints();
+  } catch (e) {}
+}
+const LOCAL = /^https?:$/.test(location.protocol) && /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
+let HELPER = LOCAL, BASE = '';
+async function detectHelper(){
+  if (LOCAL) return true;
+  try {
+    const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 1500);
+    const r = await fetch('http://localhost:8765/health', { signal: ctl.signal }); clearTimeout(t);
+    const j = await r.json(); HELPER = !!(j && j.helper === 'meeting-copilot');
+  } catch (e) { HELPER = false; }
+  BASE = HELPER ? 'http://localhost:8765' : '';
+  applyHelperUI(); return HELPER;
+}
+function applySourceUI(){ $('themStat').style.display = cfg().themSource === 'none' ? 'none' : ''; }
+function applyHelperUI(){
+  applySourceUI();
+  $('anWrap').style.display = HELPER ? 'none' : ''; $('llmWrap').style.display = HELPER ? 'none' : '';
+  $('subNote').style.display = HELPER ? '' : 'none';
+}
+const HH = { 'content-type': 'application/json', 'x-copilot': '1' };
+const cfg = () => Object.fromEntries(FIELDS.map(f => [f, $(f).value.trim()]));
+const saveCfg = () => FIELDS.forEach(f => store.set(f, $(f).value));
+
+let toastTimer;
+function toast(msg, ms = 7000){
+  const t = $('toast'); t.textContent = msg; t.style.display = 'block';
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.style.display = 'none', ms);
+}
+const setDot = (id, cls) => { $(id).className = 'dot' + (cls ? ' ' + cls : ''); };
+
+/* ---------- transcript ---------- */
+const lines = [];            // {who:'you'|'them', text}
+const segs = [];             // every committed segment, unmerged
+const partial = { you:'', them:'' };
+const oneMic = () => micOnly || cfg().themSource === 'none';
+function label(who){ const c = cfg(); if (who === 'call') return 'Call'; return who === 'you' ? (c.me || 'You') : (c.them || 'Them'); }
+/* ---------- telling the two voices apart (single-microphone mode) ---------- */
+const diar = { active: false, segs: new Map(), order: [], merges: {}, me: null, prov: [], lastAt: 0, lastText: '', epoch: 0, lastTail: '' };
+const norm = t => (t || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+function diarResolve(id){ let n = 0; while (id != null && diar.merges[id] != null && n++ < 20) id = diar.merges[id]; return id; }
+function diarRuns(m){
+  if (!Array.isArray(m.words) || !m.words.length) return (m.text || '').trim() ? [{ spk: null, text: m.text.trim() }] : [];
+  const runs = []; let cur = null;
+  m.words.forEach(w => {
+    if (w.type === 'audio_event') return;
+    const spk = w.type === 'spacing' || w.speaker_id == null ? (cur ? cur.spk : null) : w.speaker_id;
+    if (!cur || cur.spk !== spk){ cur = { spk, text: '' }; runs.push(cur); }
+    cur.text += w.text;
+  });
+  return runs.map(r => ({ spk: r.spk, text: r.text.trim() })).filter(r => r.text);
+}
+function diarRebuild(){
+  const out = [];
+  const push = (who, text) => { const l = out[out.length - 1]; if (l && l.who === who && l.text.length < 400) l.text += ' ' + text; else out.push({ who, text }); };
+  diar.order.forEach(k => diar.segs.get(k).forEach(r => {
+    const id = diarResolve(r.spk);
+    if (id != null && diar.me == null) diar.me = id;          // first voice heard is taken to be yours
+    push(id == null ? 'call' : (id === diar.me ? 'you' : 'them'), r.text);
+  }));
+  diar.prov.forEach(p => push(p.who, p.text));
+  lines.length = 0; out.forEach(l => lines.push(l));
+  segs.length = 0; out.forEach(l => segs.push(l));
+  $('swapBtn').style.display = diar.me != null ? '' : 'none';
+  renderTranscript();
+  const last = out[out.length - 1];
+  if (last && last.who !== 'you'){
+    const tail = last.who + '|' + last.text;
+    if (tail !== diar.lastTail && last.text.split(/\s+/).length >= 3){ diar.lastTail = tail; scheduleSuggest(500); }
+  } else if (last) diar.lastTail = '';
+}
+function diarOnSegment(m){
+  diar.active = true; diar.lastAt = Date.now(); diar.lastText = norm(m.text);
+  const k = diar.epoch + ':' + (m.segment_index != null ? m.segment_index : diar.order.length);
+  if (!diar.segs.has(k)) diar.order.push(k);
+  diar.segs.set(k, diarRuns(m));
+  diar.prov = diar.prov.filter(p => p.who === 'them');       // plain commits are now covered by the voice-labelled text
+  diarRebuild();
+}
+function diarOnCommit(text){
+  const t = norm(text); if (!t) return;
+  // the same words may arrive both ways; skip the plain copy if the labelled one just landed
+  if (Date.now() - diar.lastAt < 2500 && (diar.lastText.endsWith(t) || diar.lastText.includes(t))) return;
+  diar.prov.push({ who: 'call', text: text.trim() }); diarRebuild();
+}
+function diarSwap(){
+  const ids = []; diar.order.forEach(k => diar.segs.get(k).forEach(r => { const id = diarResolve(r.spk); if (id != null) ids.push(id); }));
+  const other = ids.reverse().find(id => id !== diar.me); if (other == null) return;
+  diar.me = other; diarRebuild();
+}
+
+function renderTranscript(){
+  const el = $('transcript');
+  const stick = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+  el.textContent = '';
+  const add = (who, text, isPartial) => {
+    const d = document.createElement('div'); d.className = 'ln ' + who + (isPartial ? ' partial' : '');
+    const b = document.createElement('b'); b.textContent = label(who);
+    d.append(b, document.createTextNode(text)); el.append(d);
+  };
+  lines.slice(-200).forEach(l => add(l.who, l.text, false));
+  ['them','you'].forEach(w => { if (partial[w]) add(w === 'you' && oneMic() ? 'call' : w, partial[w], true); });
+  if (stick) el.scrollTop = el.scrollHeight;
+}
+function addLine(who, text){
+  text = (text || '').trim(); if (!text) return;
+  if (who === 'you' && oneMic()) who = 'call';
+  if (diar.active){ diar.prov.push({ who, text }); diarRebuild(); return; }
+  segs.push({ who, text });
+  const last = lines[lines.length - 1];
+  if (last && last.who === who && last.text.length < 400) last.text += ' ' + text;
+  else lines.push({ who, text });
+  renderTranscript();
+  if (who !== 'you' && text.split(/\s+/).length >= 3) scheduleSuggest(500);
+}
+
+/* ---------- audio capture -> 16 kHz PCM ---------- */
+const WORKLET = `
+class Down extends AudioWorkletProcessor{
+  constructor(){super();this.ratio=sampleRate/16000;this.pos=0;this.acc=0;this.n=0;this.buf=[];}
+  process(inputs){
+    const ch=inputs[0]; if(!ch||!ch[0]) return true;
+    const len=ch[0].length, nc=ch.length;
+    for(let i=0;i<len;i++){
+      let s=0; for(let c=0;c<nc;c++) s+=ch[c][i]; s/=nc;
+      this.acc+=s; this.n++; this.pos+=1;
+      if(this.pos>=this.ratio){
+        this.pos-=this.ratio; let v=this.acc/this.n; this.acc=0; this.n=0;
+        v=Math.max(-1,Math.min(1,v)); this.buf.push(v<0?v*32768:v*32767);
+        if(this.buf.length>=1600){const a=Int16Array.from(this.buf);this.buf=[];this.port.postMessage(a.buffer,[a.buffer]);}
+      }
+    }
+    return true;
+  }
+}
+registerProcessor('down16k',Down);`;
+
+function b64(buf){
+  const u = new Uint8Array(buf); let s = '';
+  for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+
+let running = false, audioCtx = null;
+const channels = {};         // who -> {stream, node, ws, retry}
+
+async function elToken(){
+  const r = HELPER
+    ? await fetch(BASE + '/el-token', { method: 'POST', headers: HH, body: JSON.stringify({ key: cfg().elKey }) })
+    : await fetch('https://api.elevenlabs.io/v1/single-use-token/realtime_scribe', { method: 'POST', headers: { 'xi-api-key': cfg().elKey } });
+  if (!r.ok) throw new Error('ElevenLabs refused the key (' + r.status + '). ' + (await r.text()).slice(0, 160));
+  const j = await r.json();
+  if (!j.token) throw new Error('ElevenLabs returned no token');
+  return j.token;
+}
+
+async function openSocket(who, model){
+  const ch = channels[who]; if (!ch || !running) return;
+  const c = cfg();
+  setDot(who === 'you' ? 'dotYou' : 'dotThem', 'wait');
+  let token;
+  try { token = await elToken(); }
+  catch (e) { setDot(who === 'you' ? 'dotYou' : 'dotThem', 'err'); toast(e.message || String(e)); return; }
+  if (!running) return;
+  const q = new URLSearchParams({
+    model_id: model, token, audio_format: 'pcm_16000', commit_strategy: 'vad',
+    vad_silence_threshold_secs: '0.7'
+  });
+  if (c.lang) q.set('language_code', c.lang);
+  if (ch.diar) q.set('diarize', 'true');
+  const ws = new WebSocket('wss://api.elevenlabs.io/v1/speech-to-text/realtime?' + q);
+  ch.ws = ws; let started = false;
+  const dot = who === 'you' ? 'dotYou' : 'dotThem';
+  ws.onmessage = ev => {
+    let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
+    const t = m.message_type;
+    if (t === 'session_started'){ started = true; ch.retry = 0; setDot(dot, 'on'); if (ch.diar) diar.epoch++; }
+    else if (t === 'diarized_transcript'){ partial[who] = ''; diarOnSegment(m); }
+    else if (t === 'speakers_merged'){ diar.merges[m.from_speaker_id] = m.to_speaker_id; if (diar.me === m.from_speaker_id) diar.me = m.to_speaker_id; diarRebuild(); }
+    else if (t === 'partial_transcript'){ partial[who] = m.text || ''; renderTranscript(); }
+    else if (t === 'committed_transcript' || t === 'committed_transcript_with_timestamps'){
+      partial[who] = ''; if (diar.active) diarOnCommit(m.text); else addLine(who, m.text);
+    }
+    else if (t === 'warning'){ console.warn('ElevenLabs', m.warning); }
+    else if (t === 'insufficient_audio_activity' || t === 'commit_throttled'){ /* harmless */ }
+    else if (m.error){ console.error('ElevenLabs', t, m.error); ch.lastErr = t + ': ' + m.error; }
+  };
+  ws.onclose = () => {
+    if (ch.ws !== ws) return;
+    ch.ws = null; partial[who] = ''; renderTranscript();
+    if (!running) { setDot(dot, ''); return; }
+    setDot(dot, 'err');
+    // voice separation refused -> carry on without it
+    if (!started && ch.diar){ ch.diar = false; openSocket(who, ch.model); return; }
+    // newest model unavailable on this account -> fall back once
+    if (!started && model === 'scribe_v3_live'){ ch.model = 'scribe_v2_realtime'; openSocket(who, ch.model); return; }
+    ch.retry = (ch.retry || 0) + 1;
+    if (ch.retry > 6){ toast('Lost the transcription connection (' + (ch.lastErr || 'closed') + '). Press Stop then Start.'); return; }
+    setTimeout(() => openSocket(who, ch.model), Math.min(8000, 600 * ch.retry));
+  };
+  ws.onerror = () => {};
+}
+
+async function addChannel(who, stream){
+  const src = audioCtx.createMediaStreamSource(stream);
+  const node = new AudioWorkletNode(audioCtx, 'down16k');
+  const mute = audioCtx.createGain(); mute.gain.value = 0;
+  src.connect(node); node.connect(mute); mute.connect(audioCtx.destination);
+  const ch = channels[who] = { stream, node, src, ws: null, retry: 0, model: cfg().sttModel || 'scribe_v3_live', diar: who === 'you' && cfg().themSource === 'none' };
+  node.port.onmessage = ev => {
+    const ws = ch.ws;
+    if (ws && ws.readyState === 1 && ws.bufferedAmount < 400000){
+      ws.send(JSON.stringify({ message_type: 'input_audio_chunk', audio_base_64: b64(ev.data), commit: false, sample_rate: 16000 }));
+    }
+  };
+  await openSocket(who, ch.model);
+}
+
+async function start(){
+  const c = cfg();
+  if (!c.elKey || (!HELPER && !c.anKey)){ openSettings(); toast(HELPER ? 'Add your ElevenLabs API key first.' : 'Add both API keys first.'); return; }
+  $('startBtn').disabled = true;
+  try {
+    const far = c.themSource === 'none';   // one mic has to pick up a phone on loudspeaker as well
+    const mic = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: !far, noiseSuppression: !far, autoGainControl: true } });
+    let sys = null;
+    if (c.themSource === 'display'){
+      try {
+        const disp = await navigator.mediaDevices.getDisplayMedia({
+          video: true,
+          audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+          systemAudio: 'include'
+        });
+        if (disp.getAudioTracks().length){
+          sys = new MediaStream(disp.getAudioTracks());
+          channels._disp = disp;
+          disp.getAudioTracks()[0].addEventListener('ended', () => { if (running){ toast('Computer audio sharing stopped, so the other person is no longer being heard.'); setDot('dotThem', 'err'); } });
+        } else {
+          disp.getTracks().forEach(t => t.stop());
+          toast('No audio came with that share. Press Stop, then Start, and tick "Also share system audio" (or "Also share tab audio"). Carrying on with the microphone only.', 12000);
+        }
+      } catch (e) {
+        toast('Screen/audio share was cancelled. Carrying on with the microphone only.');
+      }
+    }
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    await audioCtx.audioWorklet.addModule(URL.createObjectURL(new Blob([WORKLET], { type: 'application/javascript' })));
+    running = true;
+    await addChannel('you', mic);
+    if (sys) await addChannel('them', sys);
+    $('startBtn').textContent = 'Stop'; $('startBtn').className = 'stop';
+    if (!sys) { micOnly = true; }
+    if (HELPER) warm();
+  } catch (e) {
+    stop(); toast('Could not start: ' + (e.message || e));
+  }
+  $('startBtn').disabled = false;
+}
+let micOnly = false;
+
+function stop(){
+  running = false; micOnly = false;
+  for (const k of Object.keys(channels)){
+    const ch = channels[k];
+    if (k === '_disp'){ ch.getTracks().forEach(t => t.stop()); }
+    else {
+      try { ch.ws && ch.ws.close(); } catch (e) {}
+      try { ch.node.disconnect(); ch.src.disconnect(); } catch (e) {}
+      ch.stream.getTracks().forEach(t => t.stop());
+    }
+    delete channels[k];
+  }
+  if (audioCtx){ audioCtx.close().catch(() => {}); audioCtx = null; }
+  partial.you = partial.them = '';
+  setDot('dotYou', ''); setDot('dotThem', '');
+  $('startBtn').textContent = 'Start listening'; $('startBtn').className = 'primary';
+  renderTranscript();
+}
+
+/* ---------- suggestions ---------- */
+let suggestTimer = null, inflight = null, lastSuggestAt = 0;
+function scheduleSuggest(delay){
+  clearTimeout(suggestTimer);
+  const wait = Math.max(delay, 2500 - (Date.now() - lastSuggestAt));
+  suggestTimer = setTimeout(() => suggest(false), wait);
+}
+
+function systemPrompt(c, withPoints = true){
+  return `You are a silent real-time coach for ${c.me || 'the user'} during a live video call with ${c.them || 'the other person'}. ${c.me || 'The user'} glances at your output mid-conversation, so it must be instantly usable.
+
+MEETING NOTES FROM ${(c.me || 'the user').toUpperCase()}:
+${c.context || '(none given)'}
+
+You receive the running transcript. Lines are labelled with the speaker. ${oneMic() ? 'Only one microphone is being captured. Lines are labelled either with a name, assigned automatically from the sound of the voice (this can be wrong or swapped), or with "Call" (not assigned). Check the label against the content: questions about the assessment or arrangements, and anything addressed to ' + (c.me || 'the user') + ' by name, come from ' + (c.them || 'the other person') + '. If the latest line was clearly spoken by ' + (c.me || 'the user') + ' and needs no follow-up, reply WAIT.' : ''} The transcript is machine-generated and may contain mishearings.
+
+Reply with 1 to 3 lines, best first, and nothing else. Each line starts with one of:
+SAY: a sentence ${c.me || 'the user'} can say out loud as written. Natural spoken British English, 25 words at most.
+ASK: a question worth asking ${c.them || 'them'} right now, 20 words at most.
+NOTE: a private heads-up of 12 words at most, such as a point not yet covered or something not to commit to.
+
+Rules:
+- Respond to what ${c.them || 'the other person'} said most recently, and steer towards the goals in the meeting notes.
+- Use only the meeting notes and the transcript. Never invent facts, figures, dates, names or commitments. If an answer needs a fact you were not given, suggest a line that is honest about checking and following up.
+- Honesty comes first. Never suggest saying anything untrue, misleading or evasive. When a question is about something only ${c.me || 'the user'} can know (what happened, what they did, how they feel), do not script the answer: give a NOTE telling them to answer truthfully in their own words.
+- Follow any "how to coach me" instructions in the meeting notes.
+${withPoints && openPoints().length ? '- Points ' + (c.me || 'the user') + ' still wants to raise (cue one with ASK only at a natural gap):\n' + openPoints().map(p => '  * ' + p).join('\n') : ''}
+- Do not repeat a suggestion ${c.me || 'the user'} has already said or that you gave last time.
+- The points still to raise are numbered like [3]. If the transcript shows one has already been asked by ${c.me || 'the user'} or clearly answered by ${c.them || 'the other person'}, add one extra final line listing the numbers, for example: DONE: 3 or DONE: 2, 5. Only do this when it has clearly been covered; when unsure, leave it.
+- If there is nothing useful to add right now, reply with exactly: WAIT (a DONE line may still follow it).`;
+}
+
+function parseSuggestions(text){
+  const out = [];
+  text.split('\n').forEach(l => {
+    const m = l.trim().match(/^(SAY|ASK|NOTE)\s*:\s*(.+)$/i);
+    if (m) out.push({ kind: m[1].toUpperCase(), text: m[2].trim().replace(/^["\u201c]+|["\u201d]+$/g, '') });
+  });
+  return out;
+}
+const sets = [];   // newest first; each = [{kind,text}]
+function renderCards(live){
+  const el = $('cards'); el.textContent = '';
+  const all = (live ? [live] : []).concat(sets).slice(0, 4);
+  if (!all.length){ const d = document.createElement('div'); d.className = 'empty'; d.textContent = 'Listening. Suggestions appear when the other person finishes a point, or press Suggest now.'; el.append(d); return; }
+  all.forEach((set, i) => {
+    const s = document.createElement('div'); s.className = 'set' + (i ? ' old' : '');
+    set.forEach(c => {
+      const d = document.createElement('div'); d.className = 'card ' + c.kind.toLowerCase();
+      const k = document.createElement('div'); k.className = 'k'; k.textContent = c.kind === 'SAY' ? 'SAY' : c.kind === 'ASK' ? 'ASK' : 'HEADS-UP';
+      const v = document.createElement('div'); v.className = 'v'; v.textContent = c.text;
+      d.append(k, v); s.append(d);
+    });
+    el.append(s);
+  });
+  el.scrollTop = 0;
+}
+
+
+async function warm(){
+  setDot('dotAI', 'wait');
+  try {
+    const r = await fetch(BASE + '/warm', { method: 'POST', headers: HH, body: JSON.stringify({ system: systemPrompt(cfg(), false) }) });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || 'helper error');
+    setDot('dotAI', 'on'); return j;
+  } catch (e) { setDot('dotAI', 'err'); toast(helperHint(e.message || String(e)), 12000); throw e; }
+}
+function helperHint(msg){
+  if (/auth|log ?in|credential|api key|401|403/i.test(msg)) return 'Claude Code is not logged in on this computer. Open a terminal, run "claude", type /login, then try again. (' + msg + ')';
+  if (/could not run|not recognized|ENOENT|not found/i.test(msg)) return 'Claude Code was not found on this computer. Install it and log in, then restart the helper. (' + msg + ')';
+  if (/Failed to fetch|NetworkError/i.test(msg)) return 'The helper window has been closed. Start it again (start-copilot.bat) and reload this page.';
+  return 'Suggestion failed: ' + msg;
+}
+async function suggestViaHelper(manual){
+  const c = cfg();
+  if (!segs.length && !manual) return;
+  if (inflight) inflight.abort();
+  const ctl = inflight = new AbortController();
+  lastSuggestAt = Date.now();
+  setDot('dotAI', 'wait');
+  try {
+    const r = await fetch(BASE + '/suggest', {
+      method: 'POST', signal: ctl.signal, headers: HH,
+      body: JSON.stringify({
+        system: systemPrompt(c, false), me: c.me, manual: !!manual,
+        segs: segs.slice(-60).map(s => ({ who: label(s.who), text: s.text })), total: segs.length,
+        points: openPoints(), full: diar.active
+      })
+    });
+    if (r.status === 409) return;
+    if (!r.ok){ let m = 'error ' + r.status; try { m = (await r.json()).error || m; } catch (e) {} throw new Error(m); }
+    const reader = r.body.getReader(), dec = new TextDecoder(); let text = '';
+    for (;;){
+      const { done, value } = await reader.read(); if (done) break;
+      text += dec.decode(value, { stream: true });
+      const live = parseSuggestions(text); if (live.length) renderCards(live);
+    }
+    const final = parseSuggestions(text); autoTick(text);
+    if (final.length){ sets.unshift(final); sets.length = Math.min(sets.length, 4); }
+    renderCards(null); setDot('dotAI', 'on');
+  } catch (e) {
+    if (e.name === 'AbortError') return;
+    setDot('dotAI', 'err'); toast(helperHint(e.message || String(e)), 10000); renderCards(null);
+  } finally { if (inflight === ctl) inflight = null; }
+}
+
+async function suggest(manual){
+  const c = cfg();
+  if (HELPER) return suggestViaHelper(manual);
+  if (!c.anKey){ if (manual) toast('Add your Anthropic API key in Setup.'); return; }
+  if (!lines.length && !manual) return;
+  if (inflight) inflight.abort();
+  const ctl = inflight = new AbortController();
+  lastSuggestAt = Date.now();
+  setDot('dotAI', 'wait');
+  const convo = lines.slice(-40).map(l => label(l.who) + ': ' + l.text).join('\n') || '(nothing said yet)';
+  const prev = sets[0] ? '\n\nYour previous suggestions (do not repeat):\n' + sets[0].map(s => s.kind + ': ' + s.text).join('\n') : '';
+  try {
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST', signal: ctl.signal,
+      headers: {
+        'content-type': 'application/json', 'x-api-key': c.anKey,
+        'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify({
+        model: c.llmModel || 'claude-haiku-5-5', max_tokens: 220, stream: true,
+        system: systemPrompt(c),
+        messages: [{ role: 'user', content: 'TRANSCRIPT SO FAR:\n' + convo + prev + '\n\nWhat should ' + (c.me || 'I') + ' say next?' }]
+      })
+    });
+    if (!r.ok){
+      let msg = 'Suggestion request failed (' + r.status + ')';
+      try { const j = await r.json(); if (j.error && j.error.message) msg += ': ' + j.error.message; } catch (e) {}
+      throw new Error(msg);
+    }
+    const reader = r.body.getReader(), dec = new TextDecoder();
+    let buf = '', text = '';
+    for (;;){
+      const { done, value } = await reader.read(); if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let i;
+      while ((i = buf.indexOf('\n')) >= 0){
+        const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
+        if (!line.startsWith('data:')) continue;
+        let ev; try { ev = JSON.parse(line.slice(5)); } catch (e) { continue; }
+        if (ev.type === 'content_block_delta' && ev.delta && ev.delta.text){
+          text += ev.delta.text;
+          const live = parseSuggestions(text); if (live.length) renderCards(live);
+        } else if (ev.type === 'error'){ throw new Error((ev.error && ev.error.message) || 'stream error'); }
+      }
+    }
+    const final = parseSuggestions(text); autoTick(text);
+    if (final.length){ sets.unshift(final); sets.length = Math.min(sets.length, 4); }
+    renderCards(null);
+    setDot('dotAI', 'on');
+  } catch (e) {
+    if (e.name === 'AbortError') return;
+    setDot('dotAI', 'err'); toast(e.message || String(e)); renderCards(null);
+  } finally {
+    if (inflight === ctl) inflight = null;
+  }
+}
+
+/* ---------- floating always-on-top window ---------- */
+async function floatOnTop(){
+  if (!('documentPictureInPicture' in window)){ toast('Floating window needs a recent Chrome or Edge. Instead, drag this window narrow and sit it beside Teams.'); return; }
+  if (window.documentPictureInPicture.window){ window.documentPictureInPicture.window.close(); return; }
+  try {
+    const w = await window.documentPictureInPicture.requestWindow({ width: 420, height: 360 });
+    document.querySelectorAll('style').forEach(s => w.document.head.append(s.cloneNode(true)));
+    w.document.body.style.cssText = 'margin:0;display:flex;flex-direction:column;height:100vh';
+    w.document.body.append($('stage'));
+    $('pipHolder').style.display = 'flex';
+    w.addEventListener('pagehide', () => { $('stageWrap').prepend($('stage')); $('pipHolder').style.display = 'none'; });
+  } catch (e) { toast('Could not open the floating window: ' + (e.message || e)); }
+}
+
+/* ---------- setup + wiring ---------- */
+function openSettings(){ $('settings').classList.add('open'); detectHelper(); }
+$('settingsBtn').onclick = openSettings;
+$('notesFile').onchange = async e => {
+  const f = e.target.files[0]; if (!f) return;
+  let t = await f.text();
+  t = t.replace(/^ME:[ \t]*(.+)\r?\n/m, (_, v) => { $('me').value = v.trim(); return ''; })
+       .replace(/^THEM:[ \t]*(.+)\r?\n/m, (_, v) => { $('them').value = v.trim(); return ''; })
+       .replace(/^SOURCE:[ \t]*(.+)\r?\n/m, (_, v) => { $('themSource').value = /mic/i.test(v) ? 'none' : 'display'; return ''; });
+  const i = t.indexOf('===POINTS===');
+  $('context').value = (i >= 0 ? t.slice(0, i) : t).trim();
+  if (i >= 0) $('points').value = t.slice(i + 12).trim();
+  saveCfg(); renderPoints();
+};
+$('closeSettings').onclick = () => { saveCfg(); applySourceUI(); $('settings').classList.remove('open'); renderTranscript(); renderPoints(); };
+renderPoints();
+$('startBtn').onclick = async () => { saveCfg(); if (running) return stop(); await detectHelper(); start(); };
+$('suggestBtn').onclick = () => suggest(true);
+$('pipBtn').onclick = floatOnTop;
+$('swapBtn').onclick = diarSwap;
+$('copyBtn').onclick = async () => {
+  const txt = lines.map(l => label(l.who) + ': ' + l.text).join('\n');
+  try { await navigator.clipboard.writeText(txt); $('copyBtn').textContent = 'Copied'; setTimeout(() => $('copyBtn').textContent = 'Copy', 1500); }
+  catch (e) { toast('Copy was blocked by the browser.'); }
+};
+$('inject').addEventListener('submit', e => {
+  e.preventDefault(); const v = $('injectText').value.trim(); if (!v) return;
+  $('injectText').value = ''; addLine('them', v);
+});
+document.addEventListener('keydown', e => {
+  if (e.code === 'Space' && !/INPUT|TEXTAREA|SELECT|BUTTON/.test(e.target.tagName)){ e.preventDefault(); suggest(true); }
+});
+$('testBtn').onclick = async () => {
+  saveCfg(); const out = $('testOut'); out.textContent = 'Testing...'; await detectHelper();
+  const res = [];
+  try { await elToken(); res.push('ElevenLabs key: OK'); } catch (e) { res.push('ElevenLabs: ' + (e.message || e)); }
+  if (HELPER){
+    try { const j = await warm(); res.push('Claude subscription: OK (' + (j.ms / 1000).toFixed(1) + 's first reply)'); }
+    catch (e) { res.push('Claude: ' + (e.message || e)); }
+    out.textContent = res.join('  |  '); return;
+  }
+  try {
+    const c = cfg();
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-api-key': c.anKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+      body: JSON.stringify({ model: c.llmModel || 'claude-haiku-5-5', max_tokens: 5, messages: [{ role: 'user', content: 'Reply OK' }] })
+    });
+    if (r.ok) res.push('Anthropic key: OK');
+    else { let m = r.status; try { m += ' ' + (await r.json()).error.message; } catch (e) {} res.push('Anthropic: ' + m); }
+  } catch (e) { res.push('Anthropic: ' + (e.message || e)); }
+  out.textContent = res.join('  |  ');
+};
+window.addEventListener('beforeunload', () => { if (running) stop(); });
+applyHelperUI();
+detectHelper().then(() => { if (!cfg().elKey || (!HELPER && !cfg().anKey) || !cfg().context) openSettings(); });
+renderTranscript();
+})();
+</script>
+</body>
+</html>
