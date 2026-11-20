@@ -168,7 +168,17 @@ function renderPoints(){
     l.append(cb, s); list.append(l);
   });
 }
-const openPoints = () => $('points').value.split('\n').map(s => s.trim()).filter(p => p && !pointsDone.has(p));
+const allPoints = () => $('points').value.split('\n').map(s => s.trim()).filter(Boolean);
+const openPoints = () => allPoints().map((p, i) => ({ p, n: i + 1 })).filter(x => !pointsDone.has(x.p)).map(x => '[' + x.n + '] ' + x.p);
+function autoTick(text){
+  try {
+    const all = allPoints(); let changed = false;
+    (text.match(/^\s*DONE\s*:\s*([\d,\s\[\]]+)$/gim) || []).forEach(l => (l.match(/\d+/g) || []).forEach(d => {
+      const p = all[+d - 1]; if (p && !pointsDone.has(p)){ pointsDone.add(p); changed = true; }
+    }));
+    if (changed) renderPoints();
+  } catch (e) {}
+}
 const LOCAL = /^https?:$/.test(location.protocol) && /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
 let HELPER = LOCAL, BASE = '';
 async function detectHelper(){
@@ -474,7 +484,8 @@ Rules:
 - Follow any "how to coach me" instructions in the meeting notes.
 ${withPoints && openPoints().length ? '- Points ' + (c.me || 'the user') + ' still wants to raise (cue one with ASK only at a natural gap):\n' + openPoints().map(p => '  * ' + p).join('\n') : ''}
 - Do not repeat a suggestion ${c.me || 'the user'} has already said or that you gave last time.
-- If there is nothing useful to add right now, reply with exactly: WAIT`;
+- The points still to raise are numbered like [3]. If the transcript shows one has already been asked by ${c.me || 'the user'} or clearly answered by ${c.them || 'the other person'}, add one extra final line listing the numbers, for example: DONE: 3 or DONE: 2, 5. Only do this when it has clearly been covered; when unsure, leave it.
+- If there is nothing useful to add right now, reply with exactly: WAIT (a DONE line may still follow it).`;
 }
 
 function parseSuggestions(text){
@@ -543,7 +554,7 @@ async function suggestViaHelper(manual){
       text += dec.decode(value, { stream: true });
       const live = parseSuggestions(text); if (live.length) renderCards(live);
     }
-    const final = parseSuggestions(text);
+    const final = parseSuggestions(text); autoTick(text);
     if (final.length){ sets.unshift(final); sets.length = Math.min(sets.length, 4); }
     renderCards(null); setDot('dotAI', 'on');
   } catch (e) {
@@ -597,7 +608,7 @@ async function suggest(manual){
         } else if (ev.type === 'error'){ throw new Error((ev.error && ev.error.message) || 'stream error'); }
       }
     }
-    const final = parseSuggestions(text);
+    const final = parseSuggestions(text); autoTick(text);
     if (final.length){ sets.unshift(final); sets.length = Math.min(sets.length, 4); }
     renderCards(null);
     setDot('dotAI', 'on');
